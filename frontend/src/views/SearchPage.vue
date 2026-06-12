@@ -13,13 +13,97 @@
 
     <!-- Search Card -->
     <div class="bg-white rounded-2xl shadow-2xl p-6 sm:p-8">
+      <div v-if="isEmployee && !isIntranet" class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-3">
+        <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div class="flex-1">
+          <p class="text-blue-800 font-medium">当前处于外网环境</p>
+          <p class="text-blue-600 text-sm mt-1">
+            内网资源搜索源仅在企业内网环境可用。当前IP: <span class="font-mono">{{ clientIp || '未知' }}</span>。
+            请连接公司网络或使用VPN后访问内网资源。
+          </p>
+        </div>
+      </div>
+
+      <div v-if="!isEmployee && isIntranet" class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl flex items-start gap-3">
+        <svg class="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        <div class="flex-1">
+          <p class="text-yellow-800 font-medium">访客模式 - 内网资源受限</p>
+          <p class="text-yellow-600 text-sm mt-1">
+            您当前以访客身份浏览。如需访问内网资源，
+            <router-link to="/login" class="text-yellow-700 underline font-medium hover:text-yellow-800">请登录员工账户</router-link>。
+          </p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-4 mb-6">
+        <div class="flex items-center gap-3">
+          <span class="text-gray-700 font-medium">搜索源：</span>
+          <div class="flex gap-2">
+            <button
+              @click="searchSource = 'public'"
+              class="px-4 py-2 rounded-lg font-medium transition-all duration-200"
+              :class="searchSource === 'public' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            >
+              公网资源
+            </button>
+            <button
+              v-if="canAccessIntranet"
+              @click="searchSource = 'intranet'"
+              class="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2"
+              :class="searchSource === 'intranet' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              内网资源
+            </button>
+          </div>
+        </div>
+        <div v-if="searchSource === 'intranet'" class="flex items-center gap-3">
+          <span class="text-gray-700 font-medium">类型：</span>
+          <div class="flex gap-2">
+            <button
+              @click="resourceType = null"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+              :class="resourceType === null ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            >
+              全部
+            </button>
+            <button
+              @click="resourceType = 'component'"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+              :class="resourceType === 'component' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            >
+              组件仓库
+            </button>
+            <button
+              @click="resourceType = 'design'"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+              :class="resourceType === 'design' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            >
+              设计规范
+            </button>
+            <button
+              @click="resourceType = 'deploy'"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200"
+              :class="resourceType === 'deploy' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            >
+              部署脚本
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="flex gap-3">
         <div class="flex-1">
           <input
             v-model="searchQuery"
             @keyup.enter="handleSearch"
             type="text"
-            placeholder="输入电影、剧集、软件等关键词..."
+            :placeholder="searchSource === 'intranet' ? '输入内网资源名称或描述...' : '输入电影、剧集、软件等关键词...'"
             class="w-full px-6 py-4 text-lg border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:ring-4 focus:ring-purple-200 outline-none transition-all duration-200"
           />
         </div>
@@ -64,22 +148,71 @@
           v-for="(item, index) in results"
           :key="index"
           class="bg-white rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 overflow-hidden"
+          :class="item.ResourceType === 'intranet' ? 'border-l-4 border-blue-500' : ''"
         >
           <div class="p-6">
             <div class="flex justify-between items-start gap-4 mb-4">
               <div class="flex-1">
+                <div class="flex items-center gap-2 mb-2">
+                  <span
+                    v-if="item.ResourceType === 'intranet'"
+                    class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full"
+                  >
+                    内网资源
+                  </span>
+                  <span
+                    v-if="item.ResourceType === 'intranet' && item.IntranetType"
+                    class="px-2 py-0.5 text-xs font-medium rounded-full"
+                    :class="{
+                      'bg-purple-100 text-purple-700': item.IntranetType === 'component',
+                      'bg-pink-100 text-pink-700': item.IntranetType === 'design',
+                      'bg-orange-100 text-orange-700': item.IntranetType === 'deploy'
+                    }"
+                  >
+                    {{ getResourceTypeName(item.IntranetType) }}
+                  </span>
+                  <span
+                    v-if="item.ResourceType === 'intranet' && item.Version"
+                    class="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-full"
+                  >
+                    {{ item.Version }}
+                  </span>
+                  <span
+                    v-if="item.ResourceType === 'intranet' && item.ExpireStatus === 'expired'"
+                    class="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded-full"
+                  >
+                    已过期
+                  </span>
+                </div>
                 <h4 class="text-xl font-semibold text-gray-900 mb-3 leading-tight">
                   {{ item.Name || item.title }}
                 </h4>
+                <div v-if="item.ResourceType === 'intranet'" class="mb-3">
+                  <p class="text-gray-600 text-sm">{{ item.Description }}</p>
+                </div>
                 <div class="flex flex-wrap gap-2 items-center">
                   <span v-if="item.Category" class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium whitespace-nowrap">
                     {{ item.Category }}
                   </span>
                   <span v-if="item.Size" class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm font-medium whitespace-nowrap flex items-center space-x-1">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 0 01.707.293l5.414 5.414a1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     <span>{{ item.Size }}</span>
+                  </span>
+                  <span v-if="item.ResourceType === 'intranet' && item.Maintainer" class="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium whitespace-nowrap flex items-center space-x-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span>负责人: {{ item.Maintainer }}</span>
+                  </span>
+                  <span v-if="item.ResourceType === 'intranet' && item.ExpireDate" class="px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap flex items-center space-x-1"
+                    :class="item.ExpireStatus === 'expired' ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700'"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span>失效日期: {{ item.ExpireDate }}</span>
                   </span>
                 </div>
               </div>
@@ -90,18 +223,16 @@
                 :title="item.isFavorited ? '已收藏' : '添加收藏'"
                 :disabled="item.isFavorited"
               >
-                <!-- Filled Heart for Favorited -->
                 <svg v-if="item.isFavorited" class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" />
                 </svg>
-                <!-- Outline Heart for Not Favorited -->
                 <svg v-else class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 0 00.951-.69l1.519-4.674z" />
                 </svg>
               </button>
             </div>
 
-            <div class="grid grid-cols-2 gap-4 mb-4 p-4 bg-gradient-to-r from-green-50 to-yellow-50 rounded-lg">
+            <div v-if="item.ResourceType !== 'intranet'" class="grid grid-cols-2 gap-4 mb-4 p-4 bg-gradient-to-r from-green-50 to-yellow-50 rounded-lg">
               <div class="flex items-center space-x-2 text-green-700">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -132,6 +263,18 @@
               </svg>
               <span>复制磁力链接</span>
             </button>
+
+            <a
+              v-if="item.ResourceType === 'intranet' && item.Url"
+              :href="item.Url"
+              target="_blank"
+              class="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center space-x-2"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              <span>访问资源</span>
+            </a>
           </div>
         </div>
       </transition-group>
@@ -165,20 +308,37 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import api from '../api'
+import { ref, computed, onMounted } from 'vue'
+import api, { auth } from '../api'
+import store from '../store'
 
 const searchQuery = ref('')
 const loading = ref(false)
 const results = ref([])
 const searched = ref(false)
+const searchSource = ref('public')
+const resourceType = ref(null)
 const toast = ref({ show: false, message: '', type: 'success' })
+
+const canAccessIntranet = computed(() => store.canAccessIntranet())
+const isIntranet = computed(() => store.state.isIntranet)
+const isEmployee = computed(() => auth.isEmployee())
+const clientIp = computed(() => store.state.clientIp)
 
 const showToast = (message, type = 'success') => {
   toast.value = { show: true, message, type }
   setTimeout(() => {
     toast.value.show = false
   }, 3000)
+}
+
+const getResourceTypeName = (type) => {
+  const types = {
+    component: '组件仓库',
+    design: '设计规范',
+    deploy: '部署脚本'
+  }
+  return types[type] || type
 }
 
 const handleSearch = async () => {
@@ -191,8 +351,19 @@ const handleSearch = async () => {
   searched.value = true
 
   try {
-    const response = await api.search('1337x', searchQuery.value, 1)
+    let keyword
+    if (searchSource.value === 'intranet') {
+      keyword = 'intranet'
+    } else {
+      keyword = '1337x'
+    }
+    
+    const response = await api.search(keyword, searchQuery.value, 1)
     results.value = response.data || []
+    
+    results.value.forEach(item => {
+      item.isFavorited = false
+    })
     
     if (results.value.length === 0) {
       showToast('未找到相关资源', 'info')
@@ -211,15 +382,27 @@ const addToFavorites = async (item) => {
   if (item.isFavorited) return
 
   try {
-    await api.addFavorite({
-      name: item.Name || item.title,
-      magnet: item.Magnet,
-      size: item.Size,
-      seeders: item.Seeders,
-      leechers: item.Leechers,
-      category: item.Category,
-      source: '1337x'
-    })
+    let favoriteData
+    if (item.ResourceType === 'intranet') {
+      favoriteData = {
+        resource_type: 'intranet',
+        intranet_resource_id: item.id,
+        name: item.Name,
+        category: item.Category
+      }
+    } else {
+      favoriteData = {
+        name: item.Name || item.title,
+        magnet: item.Magnet,
+        size: item.Size,
+        seeders: item.Seeders,
+        leechers: item.Leechers,
+        category: item.Category,
+        source: item.Source || '1337x'
+      }
+    }
+    
+    await api.addFavorite(favoriteData)
     item.isFavorited = true
     showToast('收藏成功', 'success')
   } catch (error) {

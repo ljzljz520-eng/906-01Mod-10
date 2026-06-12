@@ -18,10 +18,18 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 $api = new ApiController();
 
-// Simple Router
 if ($uri === '/health' && $method === 'GET') {
     $api->healthCheck();
-} 
+}
+elseif ($uri === '/api/access-context' && $method === 'GET') {
+    echo json_encode([
+        'success' => true,
+        'data' => $api->getAccessContext()
+    ]);
+}
+elseif ($uri === '/api/login' && $method === 'POST') {
+    $api->login();
+}
 elseif ($uri === '/api/providers' && $method === 'GET') {
     $api->getProviders();
 }
@@ -46,6 +54,67 @@ elseif ($uri === '/api/favorites' && $method === 'POST') {
 elseif (preg_match('#^/api/favorites/(\d+)$#', $uri, $matches) && $method === 'DELETE') {
     $id = $matches[1];
     $api->deleteFavorite($id);
+}
+elseif ($uri === '/api/users' && $method === 'GET') {
+    $api->getUsers();
+}
+elseif ($uri === '/api/users' && $method === 'POST') {
+    $api->createUser();
+}
+elseif (preg_match('#^/api/users/(\d+)/status$#', $uri, $matches) && $method === 'PUT') {
+    $id = $matches[1];
+    $api->updateUserStatus($id);
+}
+elseif ($uri === '/api/intranet-resources' && $method === 'GET') {
+    $api->getIntranetResources();
+}
+elseif (preg_match('#^/api/intranet-resources/(\d+)$#', $uri, $matches) && $method === 'GET') {
+    $id = $matches[1];
+    $api->getIntranetResource($id);
+}
+elseif ($uri === '/api/intranet-resources' && $method === 'POST') {
+    $api->createIntranetResource();
+}
+elseif (preg_match('#^/api/intranet-resources/(\d+)$#', $uri, $matches) && $method === 'PUT') {
+    $id = $matches[1];
+    $api->updateIntranetResource($id);
+}
+elseif (preg_match('#^/api/intranet-resources/(\d+)$#', $uri, $matches) && $method === 'DELETE') {
+    $id = $matches[1];
+    $api->deleteIntranetResource($id);
+}
+elseif ($uri === '/api/intranet-resources/expiring' && $method === 'GET') {
+    $api->getExpiringResources();
+}
+elseif ($uri === '/api/intranet-resources/maintenance' && $method === 'POST') {
+    $api->runMaintenance();
+}
+elseif ($uri === '/api/ip-whitelist' && $method === 'GET') {
+    $api->getIPWhitelist();
+}
+elseif ($uri === '/api/ip-whitelist' && $method === 'POST') {
+    $api->createIPWhitelist();
+}
+elseif (preg_match('#^/api/ip-whitelist/(\d+)$#', $uri, $matches) && $method === 'DELETE') {
+    $id = $matches[1];
+    $api->deleteIPWhitelist($id);
+}
+elseif (preg_match('#^/api/ip-whitelist/(\d+)$#', $uri, $matches) && $method === 'PUT') {
+    $id = $matches[1];
+    $api->updateIPWhitelist($id);
+}
+elseif (preg_match('#^/api/intranet-resources/(\d+)/toggle$#', $uri, $matches) && $method === 'POST') {
+    $id = $matches[1];
+    $api->toggleIntranetResource($id);
+}
+elseif ($uri === '/api/intranet-resources/reassign-maintainer' && $method === 'POST') {
+    $api->reassignMaintainer();
+}
+elseif ($uri === '/api/intranet-resources/orphaned' && $method === 'GET') {
+    $api->getOrphanedResources();
+}
+elseif ($uri === '/api/system-logs' && $method === 'GET') {
+    $api->getSystemLogs();
 }
 else {
     http_response_code(404);
