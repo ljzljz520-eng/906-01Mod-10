@@ -23,15 +23,37 @@ class ApiController {
     public function __construct() {
         $database = new Database();
         $this->db = $database->getConnection();
-        $this->searchHistory = new SearchHistory($this->db);
-        $this->favorite = new Favorite($this->db);
-        $this->user = new User($this->db);
-        $this->intranetResource = new IntranetResource($this->db);
-        $this->ipWhitelist = new IPWhitelist($this->db);
-        $this->authMiddleware = new AuthMiddleware($this->db);
-        $this->ipMiddleware = new IpWhitelistMiddleware($this->db);
-        $this->currentUser = $this->authMiddleware->authenticate();
-        $this->isIntranet = $this->ipMiddleware->isIntranetAccess();
+        
+        if ($this->db) {
+            try {
+                $this->searchHistory = new SearchHistory($this->db);
+                $this->favorite = new Favorite($this->db);
+                $this->user = new User($this->db);
+                $this->intranetResource = new IntranetResource($this->db);
+                $this->ipWhitelist = new IPWhitelist($this->db);
+                $this->authMiddleware = new AuthMiddleware($this->db);
+                $this->ipMiddleware = new IpWhitelistMiddleware($this->db);
+                $this->currentUser = $this->authMiddleware->authenticate();
+                $this->isIntranet = $this->ipMiddleware->isIntranetAccess();
+            } catch (Exception $e) {
+                error_log('ApiController init error: ' . $e->getMessage());
+                $this->currentUser = $this->getFallbackGuestUser();
+                $this->isIntranet = false;
+            }
+        } else {
+            $this->currentUser = $this->getFallbackGuestUser();
+            $this->isIntranet = false;
+        }
+    }
+
+    private function getFallbackGuestUser() {
+        return [
+            'id' => null,
+            'username' => 'guest',
+            'role' => 'guest',
+            'status' => 'active',
+            'is_guest' => true
+        ];
     }
 
     public function getCurrentUser() {
@@ -43,6 +65,15 @@ class ApiController {
     }
 
     public function getAccessContext() {
+        $clientIp = '';
+        if ($this->ipMiddleware && method_exists($this->ipMiddleware, 'getCurrentIp')) {
+            try {
+                $clientIp = $this->ipMiddleware->getCurrentIp();
+            } catch (Exception $e) {
+                $clientIp = 'unknown';
+            }
+        }
+        
         return [
             'user' => [
                 'id' => $this->currentUser['id'],
@@ -51,15 +82,44 @@ class ApiController {
                 'is_guest' => $this->currentUser['role'] === 'guest'
             ],
             'is_intranet' => $this->isIntranet,
-            'client_ip' => $this->ipMiddleware->getCurrentIp()
+            'client_ip' => $clientIp
         ];
     }
 
     public function healthCheck() {
+        $dbStatus = $this->db ? 'connected' : 'disconnected';
+        $dbDetails = [];
+        
+        if ($this->db) {
+            try {
+                $stmt = $this->db->query("SELECT 1");
+                $dbDetails['ping'] = 'ok';
+                
+                $tables = ['users', 'ip_whitelist', 'intranet_resources', 'favorites', 'search_history', 'user_tokens', 'system_logs'];
+                $tableStatus = [];
+                foreach ($tables as $table) {
+                    try {
+                        $this->db->query("SELECT 1 FROM $table LIMIT 1");
+                        $tableStatus[$table] = 'exists';
+                    } catch (PDOException $e) {
+                        $tableStatus[$table] = 'missing';
+                    }
+                }
+                $dbDetails['tables'] = $tableStatus;
+            } catch (Exception $e) {
+                $dbDetails['ping'] = 'error';
+                $dbDetails['error'] = $e->getMessage();
+            }
+        }
+        
         echo json_encode([
             'status' => 'ok',
             'timestamp' => date('c'),
             'service' => 'Torrent Search API (PHP)',
+            'database' => [
+                'status' => $dbStatus,
+                'details' => $dbDetails
+            ],
             'access_context' => $this->getAccessContext()
         ]);
     }

@@ -147,28 +147,98 @@ CREATE TABLE IF NOT EXISTS user_tokens (
   INDEX idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户令牌表';
 
--- 添加外键约束
-ALTER TABLE ip_whitelist 
-  ADD CONSTRAINT fk_ip_whitelist_created_by 
-  FOREIGN KEY IF NOT EXISTS (created_by) REFERENCES users(id) ON DELETE SET NULL;
+-- 添加外键约束（使用存储过程保证 MySQL 兼容性，支持 IF NOT EXISTS 语义）
+DELIMITER //
 
-ALTER TABLE intranet_resources 
-  ADD CONSTRAINT fk_intranet_resources_maintainer 
-  FOREIGN KEY IF NOT EXISTS (maintainer_id) REFERENCES users(id) ON DELETE RESTRICT;
+DROP PROCEDURE IF EXISTS add_foreign_key_if_not_exists //
+CREATE PROCEDURE add_foreign_key_if_not_exists(
+    IN table_name VARCHAR(100),
+    IN constraint_name VARCHAR(100),
+    IN foreign_key_sql TEXT
+)
+BEGIN
+    DECLARE constraint_exists INT DEFAULT 0;
+    
+    SELECT COUNT(*) INTO constraint_exists
+    FROM information_schema.REFERENTIAL_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE()
+      AND CONSTRAINT_NAME = constraint_name
+      AND TABLE_NAME = table_name;
+    
+    IF constraint_exists = 0 THEN
+        SET @sql = foreign_key_sql;
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END //
 
-ALTER TABLE search_history 
-  ADD CONSTRAINT fk_search_history_user 
-  FOREIGN KEY IF NOT EXISTS (user_id) REFERENCES users(id) ON DELETE SET NULL;
+DROP PROCEDURE IF EXISTS add_index_if_not_exists //
+CREATE PROCEDURE add_index_if_not_exists(
+    IN table_name VARCHAR(100),
+    IN index_name VARCHAR(100),
+    IN index_sql TEXT
+)
+BEGIN
+    DECLARE index_exists INT DEFAULT 0;
+    
+    SELECT COUNT(*) INTO index_exists
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = table_name
+      AND INDEX_NAME = index_name;
+    
+    IF index_exists = 0 THEN
+        SET @sql = index_sql;
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END //
 
-ALTER TABLE favorites 
-  ADD CONSTRAINT fk_favorites_user 
-  FOREIGN KEY IF NOT EXISTS (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  ADD CONSTRAINT fk_favorites_intranet_resource 
-  FOREIGN KEY IF NOT EXISTS (intranet_resource_id) REFERENCES intranet_resources(id) ON DELETE SET NULL;
+DELIMITER ;
 
-ALTER TABLE user_tokens 
-  ADD CONSTRAINT fk_user_tokens_user 
-  FOREIGN KEY IF NOT EXISTS (user_id) REFERENCES users(id) ON DELETE CASCADE;
+-- ip_whitelist 外键
+CALL add_foreign_key_if_not_exists(
+    'ip_whitelist',
+    'fk_ip_whitelist_created_by',
+    'ALTER TABLE ip_whitelist ADD CONSTRAINT fk_ip_whitelist_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL'
+);
+
+-- intranet_resources 外键
+CALL add_foreign_key_if_not_exists(
+    'intranet_resources',
+    'fk_intranet_resources_maintainer',
+    'ALTER TABLE intranet_resources ADD CONSTRAINT fk_intranet_resources_maintainer FOREIGN KEY (maintainer_id) REFERENCES users(id) ON DELETE RESTRICT'
+);
+
+-- search_history 外键
+CALL add_foreign_key_if_not_exists(
+    'search_history',
+    'fk_search_history_user',
+    'ALTER TABLE search_history ADD CONSTRAINT fk_search_history_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
+);
+
+-- favorites 外键（用户）
+CALL add_foreign_key_if_not_exists(
+    'favorites',
+    'fk_favorites_user',
+    'ALTER TABLE favorites ADD CONSTRAINT fk_favorites_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
+);
+
+-- favorites 外键（内网资源）
+CALL add_foreign_key_if_not_exists(
+    'favorites',
+    'fk_favorites_intranet_resource',
+    'ALTER TABLE favorites ADD CONSTRAINT fk_favorites_intranet_resource FOREIGN KEY (intranet_resource_id) REFERENCES intranet_resources(id) ON DELETE SET NULL'
+);
+
+-- user_tokens 外键
+CALL add_foreign_key_if_not_exists(
+    'user_tokens',
+    'fk_user_tokens_user',
+    'ALTER TABLE user_tokens ADD CONSTRAINT fk_user_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE'
+);
 
 -- 创建触发器：内网资源删除时自动清理相关收藏
 DELIMITER //
@@ -184,8 +254,7 @@ BEGIN
           CONCAT('内网资源被删除: ', OLD.name, ' (', OLD.version, '), 类型: ', OLD.resource_type, 
                  ', 负责人ID: ', OLD.maintainer_id, 
                  ', 相关收藏已自动清理'), 
-          NOW())
-  ON DUPLICATE KEY UPDATE id = id;
+          NOW());
 END //
 
 -- 创建触发器：用户状态变更（离职/禁用）时清理内网收藏
@@ -203,8 +272,7 @@ BEGIN
       INSERT INTO system_logs (log_type, message, created_at) 
       VALUES ('user_status_trigger', 
               CONCAT('触发器: 用户 ', NEW.username, '(ID:', NEW.id, ') 状态变更为离职，内网收藏已清理'), 
-              NOW())
-      ON DUPLICATE KEY UPDATE id = id;
+              NOW());
       
     -- 禁用：清理所有令牌
     ELSEIF NEW.status = 'inactive' THEN
@@ -213,44 +281,58 @@ BEGIN
       INSERT INTO system_logs (log_type, message, created_at) 
       VALUES ('user_status_trigger', 
               CONCAT('触发器: 用户 ', NEW.username, '(ID:', NEW.id, ') 状态变更为禁用，令牌已回收'), 
-              NOW())
-      ON DUPLICATE KEY UPDATE id = id;
+              NOW());
     END IF;
   END IF;
 END //
 
--- 创建触发器：内网资源过期自动检查并停用
+-- 创建触发器：内网资源变更日志
 DROP TRIGGER IF EXISTS trg_intranet_resources_before_update //
 CREATE TRIGGER trg_intranet_resources_before_update
 BEFORE UPDATE ON intranet_resources
 FOR EACH ROW
 BEGIN
-  -- 如果修改了失效日期且日期已过，自动标记为停用
-  IF NEW.expire_date IS NOT NULL 
-     AND NEW.expire_date < CURDATE() 
-     AND NEW.is_active = 1 THEN
-    -- 仅记录警告，实际停用由维护任务触发，避免意外影响CRUD操作
-    SET @expire_warning = 1;
-  END IF;
-  
-  -- 记录资源变更日志
+  -- 记录资源停用日志
   IF OLD.is_active <> NEW.is_active AND NEW.is_active = 0 THEN
     INSERT INTO system_logs (log_type, message, created_at) 
     VALUES ('resource_deactivated', 
             CONCAT('资源被停用: ', NEW.name, ' (', NEW.version, '), 原因: 手动操作或过期'), 
-            NOW())
-    ON DUPLICATE KEY UPDATE id = id;
+            NOW());
   END IF;
 END //
 
 DELIMITER ;
 
 -- 创建复合索引优化查询
-CREATE INDEX IF NOT EXISTS idx_intranet_type_active ON intranet_resources(resource_type, is_active);
-CREATE INDEX IF NOT EXISTS idx_intranet_maintainer_active ON intranet_resources(maintainer_id, is_active);
-CREATE INDEX IF NOT EXISTS idx_intranet_expire_active ON intranet_resources(expire_date, is_active);
-CREATE INDEX IF NOT EXISTS idx_favorites_user_type ON favorites(user_id, resource_type);
-CREATE INDEX IF NOT EXISTS idx_favorites_intranet_user ON favorites(intranet_resource_id, user_id);
+CALL add_index_if_not_exists(
+    'intranet_resources',
+    'idx_intranet_type_active',
+    'CREATE INDEX idx_intranet_type_active ON intranet_resources(resource_type, is_active)'
+);
+CALL add_index_if_not_exists(
+    'intranet_resources',
+    'idx_intranet_maintainer_active',
+    'CREATE INDEX idx_intranet_maintainer_active ON intranet_resources(maintainer_id, is_active)'
+);
+CALL add_index_if_not_exists(
+    'intranet_resources',
+    'idx_intranet_expire_active',
+    'CREATE INDEX idx_intranet_expire_active ON intranet_resources(expire_date, is_active)'
+);
+CALL add_index_if_not_exists(
+    'favorites',
+    'idx_favorites_user_type',
+    'CREATE INDEX idx_favorites_user_type ON favorites(user_id, resource_type)'
+);
+CALL add_index_if_not_exists(
+    'favorites',
+    'idx_favorites_intranet_user',
+    'CREATE INDEX idx_favorites_intranet_user ON favorites(intranet_resource_id, user_id)'
+);
+
+-- 清理临时存储过程
+DROP PROCEDURE IF EXISTS add_foreign_key_if_not_exists;
+DROP PROCEDURE IF EXISTS add_index_if_not_exists;
 
 -- 显示表结构
 SHOW TABLES;

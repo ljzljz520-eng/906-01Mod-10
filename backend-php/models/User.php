@@ -54,14 +54,19 @@ class User {
     }
 
     public function findByToken($token) {
-        $query = "SELECT u.* FROM " . $this->table_name . " u 
-                  INNER JOIN user_tokens ut ON u.id = ut.user_id 
-                  WHERE ut.token = :token AND ut.expires_at > NOW() AND u.status = 'active' 
-                  LIMIT 1";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(":token", $token);
-        $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $query = "SELECT u.* FROM " . $this->table_name . " u 
+                      INNER JOIN user_tokens ut ON u.id = ut.user_id 
+                      WHERE ut.token = :token AND ut.expires_at > NOW() AND u.status = 'active' 
+                      LIMIT 1";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(":token", $token);
+            $stmt->execute();
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log('User findByToken failed: ' . $e->getMessage());
+            return false;
+        }
     }
 
     public function findByUsername($username) {

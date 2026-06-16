@@ -35,25 +35,41 @@ class IPWhitelist {
     }
 
     public function isIpInWhitelist($ip) {
-        $ipLong = ip2long($ip);
-        if ($ipLong === false) {
+        try {
+            $ipLong = ip2long($ip);
+            if ($ipLong === false) {
+                return false;
+            }
+
+            $query = "SELECT * FROM " . $this->table_name;
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute();
+            $whitelist = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($whitelist as $range) {
+                $startLong = ip2long($range['ip_start']);
+                $endLong = ip2long($range['ip_end']);
+                if ($ipLong >= $startLong && $ipLong <= $endLong) {
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (PDOException $e) {
+            error_log('IPWhitelist table check failed: ' . $e->getMessage());
             return false;
         }
+    }
 
-        $query = "SELECT * FROM " . $this->table_name;
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
-        $whitelist = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        foreach ($whitelist as $range) {
-            $startLong = ip2long($range['ip_start']);
-            $endLong = ip2long($range['ip_end']);
-            if ($ipLong >= $startLong && $ipLong <= $endLong) {
-                return true;
-            }
+    public function tableExists() {
+        try {
+            $query = "SELECT 1 FROM " . $this->table_name . " LIMIT 1";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute();
+            return true;
+        } catch (PDOException $e) {
+            return false;
         }
-
-        return false;
     }
 
     public function create() {
